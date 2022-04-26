@@ -22,7 +22,11 @@ def central_difference(f, *vals, arg=0, epsilon=1e-6):
     Returns:
         float : An approximation of :math:`f'_i(x_0, \ldots, x_{n-1})`
     """
-    raise NotImplementedError('Need to include this file from past assignment.')
+    l = list(vals)
+    r = list(vals)
+    l[arg] -= epsilon
+    r[arg] += epsilon
+    return (f(*r) - f(*l)) / (2 * epsilon)
 
 
 # ## Task 1.2 and 1.4
@@ -58,37 +62,37 @@ class Scalar(Variable):
         return Mul.apply(b, Inv.apply(self))
 
     def __add__(self, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return Add.apply(self, b)
 
     def __bool__(self):
         return bool(self.data)
 
     def __lt__(self, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return LT.apply(self, b)
 
     def __gt__(self, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return LT.apply(b, self)
 
     def __eq__(self, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return EQ.apply(self, b)
 
     def __sub__(self, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return Add.apply(self, Neg.apply(b))
 
     def __neg__(self):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return Neg.apply(self)
 
     def log(self):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return Log.apply(self)
 
     def exp(self):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return Exp.apply(self)
 
     def sigmoid(self):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return Sigmoid.apply(self)
 
     def relu(self):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return ReLU.apply(self)
 
     def get_data(self):
         "Returns the raw float value"
@@ -149,7 +153,7 @@ class Add(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a, b):
-        return a + b
+        return operators.add(a, b)
 
     @staticmethod
     def backward(ctx, d_output):
@@ -178,11 +182,13 @@ class Mul(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        ctx.save_for_backward(a, b)
+        return operators.mul(a, b)
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        a, b = ctx.saved_values
+        return d_output * b, d_output * a
 
 
 class Inv(ScalarFunction):
@@ -190,11 +196,13 @@ class Inv(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        ctx.save_for_backward(a)
+        return operators.inv(a)
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        a = ctx.saved_values
+        return operators.inv_back(a, d_output)
 
 
 class Neg(ScalarFunction):
@@ -202,11 +210,11 @@ class Neg(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return operators.neg(a)
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return operators.neg(d_output)
 
 
 class Sigmoid(ScalarFunction):
@@ -214,11 +222,14 @@ class Sigmoid(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        sig_a = operators.sigmoid(a)
+        ctx.save_for_backward(sig_a)
+        return sig_a
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        sig_a = ctx.saved_values
+        return d_output * (sig_a * (1 - sig_a))
 
 
 class ReLU(ScalarFunction):
@@ -226,11 +237,13 @@ class ReLU(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        ctx.save_for_backward(a)
+        return operators.relu(a)
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        a = ctx.saved_values
+        return operators.relu_back(a, d_output)
 
 
 class Exp(ScalarFunction):
@@ -238,11 +251,14 @@ class Exp(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        exp_a = operators.exp(a)
+        ctx.save_for_backward(exp_a)
+        return exp_a
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        exp_a = ctx.saved_values
+        return operators.mul(d_output, exp_a)
 
 
 class LT(ScalarFunction):
@@ -250,11 +266,11 @@ class LT(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return operators.lt(a, b)
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return 0.0, 0.0
 
 
 class EQ(ScalarFunction):
@@ -262,11 +278,11 @@ class EQ(ScalarFunction):
 
     @staticmethod
     def forward(ctx, a, b):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return operators.eq(a, b)
 
     @staticmethod
     def backward(ctx, d_output):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        return 0.0, 0.0
 
 
 def derivative_check(f, *scalars):

@@ -1,4 +1,6 @@
 import numpy as np
+
+from minitorch.fast_ops import matrix_multiply
 from .tensor_data import (
     to_index,
     index_to_position,
@@ -39,7 +41,22 @@ def tensor_map(fn):
     """
 
     def _map(out, out_shape, out_strides, in_storage, in_shape, in_strides):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        in_idx = np.zeros(MAX_DIMS, np.int32)
+        out_idx = np.zeros(MAX_DIMS, np.int32)
+
+        for i in range(len(out)):
+            # get index of current out position
+            to_index(i, out_shape, out_idx)
+            
+            # map to index in input tensor
+            broadcast_index(out_idx, out_shape, in_shape, in_idx)
+            
+            # get input position in storage based on index
+            in_pos = index_to_position(in_idx, in_strides)
+            out_pos = index_to_position(out_idx, out_strides)
+
+            # apply fn on input storage value at position and write to output storage
+            out[out_pos] = fn(in_storage[in_pos])
 
     return _map
 
@@ -129,7 +146,21 @@ def tensor_zip(fn):
         b_shape,
         b_strides,
     ):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        a_idx = np.zeros(MAX_DIMS, np.int32)
+        b_idx = np.zeros(MAX_DIMS, np.int32)
+        out_idx = np.zeros(MAX_DIMS, np.int32)
+        
+        for i in range(len(out)):
+            to_index(i, out_shape, out_idx)
+            out_pos = index_to_position(out_idx, out_strides)
+
+            broadcast_index(out_idx, out_shape, a_shape, a_idx)
+            a_pos = index_to_position(a_idx, a_strides)
+
+            broadcast_index(out_idx, out_shape, b_shape, b_idx)
+            b_pos = index_to_position(b_idx, b_strides)
+
+            out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return _zip
 
@@ -199,9 +230,21 @@ def tensor_reduce(fn):
     """
 
     def _reduce(out, out_shape, out_strides, a_storage, a_shape, a_strides, reduce_dim):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        out_idx = np.zeros(MAX_DIMS, np.int32)
+        reduce_size = a_shape[reduce_dim]
+
+        for i in range(len(out)):
+            to_index(i, out_shape, out_idx)
+            out_pos = index_to_position(out_idx, out_strides)
+
+            for j in range(reduce_size):
+                out_idx[reduce_dim] = j
+                a_pos = index_to_position(out_idx, a_strides)
+
+                out[out_pos] = fn(out[out_pos], a_storage[a_pos])
 
     return _reduce
+
 
 
 def reduce(fn, start=0.0):
@@ -227,6 +270,7 @@ def reduce(fn, start=0.0):
     Returns:
         :class:`TensorData` : new tensor
     """
+
     f = tensor_reduce(fn)
 
     def ret(a, dim):
@@ -243,7 +287,105 @@ def reduce(fn, start=0.0):
     return ret
 
 
+def tensor_matrix_multiply(
+    out,
+    out_shape,
+    out_strides,
+    a_storage,
+    a_shape,
+    a_strides,
+    b_storage,
+    b_shape,
+    b_strides,
+):
+    """
+    Higher-order tensor matrix multiply function.
+
+    Should work for any tensor shapes that broadcast as long as ::
+
+        assert a_shape[-1] == b_shape[-2]
+
+    Args:
+        out (array): storage for `out` tensor
+        out_shape (array): shape for `out` tensor
+        out_strides (array): strides for `out` tensor
+        a_storage (array): storage for `a` tensor
+        a_shape (array): shape for `a` tensor
+        a_strides (array): strides for `a` tensor
+        b_storage (array): storage for `b` tensor
+        b_shape (array): shape for `b` tensor
+        b_strides (array): strides for `b` tensor
+
+    Returns:
+        None : Fills in `out`
+    """
+    a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
+    b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
+    out_idx = np.array(out_shape)
+    a_idx = np.array(a_shape)
+    b_idx = np.array(b_shape)
+    for i in range(len(out)):
+        to_index(i, out_shape, out_idx)
+        for k in range(a_shape[-1]):
+            broadcast_index(out_idx, out_shape, a_shape, a_idx)
+            broadcast_index(out_idx, out_shape, b_shape, b_idx)
+            a_idx[-1] = k
+            b_idx[-2] = k
+            a_pos = index_to_position(a_idx, a_strides)
+            b_pos = index_to_position(b_idx, b_strides)
+            out[i] += a_storage[a_pos] * b_storage[b_pos]
+
+
+def matrix_multiply(a, b):
+    """
+    Batched tensor matrix multiply ::
+
+        for n:
+          for i:
+            for j:
+              for k:
+                out[n, i, j] += a[n, i, k] * b[n, k, j]
+
+    Where n indicates an optional broadcasted batched dimension.
+
+    Should work for tensor shapes of 3 dims ::
+
+        assert a.shape[-1] == b.shape[-2]
+
+    Args:
+        a (:class:`Tensor`): tensor data a
+        b (:class:`Tensor`): tensor data b
+
+    Returns:
+        :class:`Tensor` : new tensor data
+    """
+
+    # Make these always be a 3 dimensional multiply
+    both_2d = 0
+    if len(a.shape) == 2:
+        a = a.contiguous().view(1, a.shape[0], a.shape[1])
+        both_2d += 1
+    if len(b.shape) == 2:
+        b = b.contiguous().view(1, b.shape[0], b.shape[1])
+        both_2d += 1
+    both_2d = both_2d == 2
+
+    ls = list(shape_broadcast(a.shape[:-2], b.shape[:-2]))
+    ls.append(a.shape[-2])
+    ls.append(b.shape[-1])
+    assert a.shape[-1] == b.shape[-2]
+    out = a.zeros(tuple(ls))
+
+    tensor_matrix_multiply(*out.tuple(), *a.tuple(), *b.tuple())
+
+    # Undo 3d if we added it.
+    if both_2d:
+        out = out.view(out.shape[1], out.shape[2])
+    return out
+
+
 class TensorOps:
     map = map
     zip = zip
     reduce = reduce
+    matrix_multiply = matrix_multiply
