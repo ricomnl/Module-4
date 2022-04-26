@@ -1,3 +1,5 @@
+import time
+
 import minitorch
 import datasets
 import numba
@@ -10,6 +12,10 @@ if numba.cuda.is_available():
 
 def default_log_fn(epoch, total_loss, correct, losses):
     print("Epoch ", epoch, " loss ", total_loss, "correct", correct)
+
+
+def custom_log_fn(epoch, total_loss, correct, time_per_epoch):
+    print(f"Epoch: {epoch}, loss: {total_loss}, correct: {correct}, time per epoch: {time_per_epoch:,.3f}s")
 
 
 def RParam(*shape, backend):
@@ -27,7 +33,9 @@ class Network(minitorch.Module):
         self.layer3 = Linear(hidden, 1, backend)
 
     def forward(self, x):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        h1 = self.layer1.forward(x).relu()
+        h2 = self.layer2.forward(h1).relu()
+        return self.layer3.forward(h2).sigmoid()
 
 
 class Linear(minitorch.Module):
@@ -40,7 +48,12 @@ class Linear(minitorch.Module):
         self.out_size = out_size
 
     def forward(self, x):
-        raise NotImplementedError('Need to include this file from past assignment.')
+        batch, in_size = x.shape
+        # return (
+        #     self.weights.value.view(1, in_size, self.out_size) 
+        #     * x.view(batch, in_size, 1)
+        # ).sum(1).view(batch, self.out_size) + self.bias.value.view(self.out_size)
+        return (x @ self.weights.value) + self.bias.value
 
 
 class FastTrain:
@@ -55,14 +68,19 @@ class FastTrain:
     def run_many(self, X):
         return self.model.forward(minitorch.tensor(X, backend=self.backend))
 
-    def train(self, data, learning_rate, max_epochs=500, log_fn=default_log_fn):
-
+    def train(self, data, learning_rate, max_epochs=500, log_fn=custom_log_fn):
         self.model = Network(self.hidden_layers, self.backend)
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
         BATCH = 10
         losses = []
+        times_per_epoch = []
+        start_time = time.time()
 
         for epoch in range(max_epochs):
+            time_elapsed = time.time() - start_time
+            time_per_epoch = time_elapsed / (epoch + 1)
+            times_per_epoch.append(time_per_epoch)
+
             total_loss = 0.0
             c = list(zip(data.X, data.y))
             random.shuffle(c)
@@ -92,7 +110,9 @@ class FastTrain:
                 out = self.model.forward(X).view(y.shape[0])
                 y2 = minitorch.tensor(data.y)
                 correct = int(((out.get_data() > 0.5) == y2).sum()[0])
-                log_fn(epoch, total_loss, correct, losses)
+                # log_fn(epoch, total_loss, correct, losses)
+                log_fn(epoch, total_loss, correct, time_per_epoch)
+        print(f"Average run time per epoch: {sum(times_per_epoch)/max_epochs:.2f}")
 
 
 if __name__ == "__main__":
